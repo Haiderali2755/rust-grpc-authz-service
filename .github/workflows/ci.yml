@@ -69,8 +69,13 @@ jobs:
         run: |
           curl -sSLo kc.tar.gz https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
           tar xf kc.tar.gz kubeconform
-      - name: Validate
-        run: ./kubeconform -summary -strict k8s/base/
+      # Validate the rendered output rather than the source directory: kustomize
+      # overlays are not Kubernetes resources and have no schema, and the
+      # rendered manifests are what actually reach the API server.
+      - name: Validate rendered manifests
+        run: |
+          kubectl kustomize k8s/base           | ./kubeconform -summary -strict -
+          kubectl kustomize k8s/overlays/local | ./kubeconform -summary -strict -
 
   deploy:
     name: Deploy to kind

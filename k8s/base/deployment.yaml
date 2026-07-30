@@ -36,15 +36,28 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: ["ALL"]}
           # gRPC-native probes (Kubernetes >= 1.24) rather than shelling out to
-          # a health binary — the image ships no shell.
+          # a health binary — the image ships no shell. These require the
+          # standard grpc.health.v1.Health service, registered via tonic-health.
+          #
+          # A startupProbe owns the slow-start window so livenessProbe does not:
+          # a liveness probe that fires during start-up restarts the container in
+          # a loop, which is what happened on a slow CI runner before this was
+          # added. Liveness only begins once startup has succeeded once.
+          startupProbe:
+            grpc: {port: 50051}
+            periodSeconds: 2
+            failureThreshold: 30   # up to 60s to come up
+            timeoutSeconds: 3
           readinessProbe:
             grpc: {port: 50051}
-            initialDelaySeconds: 2
             periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             grpc: {port: 50051}
-            initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
       # Give in-flight RPCs time to drain before SIGKILL.
       terminationGracePeriodSeconds: 30
 ---
