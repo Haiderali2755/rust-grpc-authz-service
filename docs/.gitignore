@@ -1,0 +1,2 @@
+# Intentionally empty: files in docs/ are published artefacts and ARE committed,
+# overriding the bench/results ignore rules in the root .gitignore.

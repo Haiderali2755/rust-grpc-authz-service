@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gRPC Authz Service — Latency Benchmark</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --surface-2: #f2f2ef; --surface-3: #e9e9e4;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --p50: #2a78d6; --p90: #eb6834; --p99: #1baf7a; --rule: #e2e2dd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --surface-2: #232322; --surface-3: #2c2c2a;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e85;
+      --p50: #3987e5; --p90: #d95926; --p99: #199e70; --rule: #34342f;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --surface-2: #232322; --surface-3: #2c2c2a;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e85;
+    --p50: #3987e5; --p90: #d95926; --p99: #199e70; --rule: #34342f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .viz-root {
+    background: var(--surface-1); color: var(--text-primary);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 48px 24px 64px; min-height: 100vh;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .sub { color: var(--text-secondary); font-size: 15px; margin: 0 0 16px; max-width: 62ch; }
+  .cfg { color: var(--text-muted); font-size: 12.5px; margin: 0 0 30px; }
+  .cfg b { color: var(--text-secondary); font-weight: 600; }
+
+  .hero { background: var(--surface-2); border-radius: 12px; padding: 26px 30px;
+           margin-bottom: 12px; display: flex; align-items: baseline; gap: 20px;
+           flex-wrap: wrap; }
+  .hero-fig { font-size: 54px; font-weight: 680; line-height: 1;
+               letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
+  .hero-fig .u { font-size: 24px; font-weight: 600; color: var(--text-secondary);
+                  margin-left: 3px; }
+  .hero-txt { font-size: 14.5px; color: var(--text-secondary); max-width: 40ch; }
+  .hero-txt b { color: var(--text-primary); font-weight: 600; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+           gap: 10px; margin-bottom: 38px; }
+  .kpi { background: var(--surface-2); border-radius: 10px; padding: 14px 16px; }
+  .kpi-label { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase;
+                letter-spacing: 0.05em; display: block; }
+  .kpi-val { font-size: 20px; font-weight: 640; font-variant-numeric: tabular-nums;
+              display: block; margin-top: 2px; }
+
+  .chartwrap { margin-bottom: 8px; overflow-x: auto; }
+  svg { display: block; width: 100%; height: auto; min-width: 520px; }
+  .axis-title { font-size: 11.5px; fill: var(--text-muted); }
+  .legend { display: flex; gap: 18px; font-size: 13px; color: var(--text-secondary);
+             flex-wrap: wrap; margin-bottom: 26px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+
+  .panel { background: var(--surface-2); border-radius: 10px; padding: 18px 20px;
+            margin-bottom: 14px; font-size: 13.5px; color: var(--text-secondary); }
+  .panel h3 { font-size: 14px; margin: 0 0 8px; color: var(--text-primary); }
+  .panel p { margin: 0 0 9px; }
+  .panel p:last-child { margin-bottom: 0; }
+  .panel b { color: var(--text-primary); font-weight: 600; }
+  .panel .muted { color: var(--text-muted); font-size: 12.5px; }
+  code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+          background: var(--surface-3); padding: 1px 5px; border-radius: 4px; }
+
+  details { margin-top: 22px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); padding: 7px 0; }
+  .tblwrap { overflow-x: auto; margin-top: 10px; }
+  table { border-collapse: collapse; font-size: 12.5px; width: 100%; min-width: 560px; }
+  th, td { text-align: right; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--rule);
+            font-variant-numeric: tabular-nums; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-secondary); font-weight: 600; }
+
+  footer { margin-top: 30px; font-size: 12.5px; color: var(--text-muted); }
+  footer a { color: inherit; }
+
+  @media (max-width: 560px) {
+    .viz-root { padding: 32px 16px 48px; }
+    h1 { font-size: 22px; }
+    .hero { padding: 20px; }
+    .hero-fig { font-size: 42px; }
+  }
+</style>
+<div class="viz-root">
+<div class="wrap">
+
+  <h1>gRPC session validation: latency under load</h1>
+  <p class="sub">A Rust gRPC service that resolves a session token and consumes
+     rate budget in one call, both from Redis. Measured across a concurrency
+     sweep rather than at a single point.</p>
+  <p class="cfg">
+    Rust · Tonic · Redis Lua · service capped at <b>2 CPU / 512 MiB</b> ·
+    <b>1,152,574</b> requests across 7 load levels ·
+    <b>0</b> errors · latencies from an HdrHistogram
+  </p>
+
+  <div class="hero">
+    <span class="hero-fig">0.85<span class='u'>ms</span></span>
+    <span class="hero-txt"><b>p50 at 17,823 req/s</b> — the highest throughput at which median latency stays under 1 ms. 72.9% of all requests at that load completed inside 1 ms.</span>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span class="kpi-label">Peak throughput</span>
+      <span class="kpi-val">23,123<span style="font-size:12px;color:var(--text-muted)"> req/s</span></span></div>
+    <div class="kpi"><span class="kpi-label">Best p50</span>
+      <span class="kpi-val">0.24<span style="font-size:12px;color:var(--text-muted)"> ms</span></span></div>
+    <div class="kpi"><span class="kpi-label">Requests served</span>
+      <span class="kpi-val">1,152,574</span></div>
+    <div class="kpi"><span class="kpi-label">Errors</span>
+      <span class="kpi-val">0</span></div>
+  </div>
+
+  <div class="chartwrap">
+    <svg viewBox="0 0 720 344" role="img"
+         aria-label="Latency percentiles against throughput. Latency rises as
+                     throughput approaches saturation near 19 to 23 thousand
+                     requests per second.">
+      <line x1="56.0" y1="302" x2="56.0" y2="306" stroke="var(--rule)" stroke-width="1"/><text x="56.0" y="319" text-anchor="middle" fill="var(--text-muted)" font-size="11">0k</text><line x1="199.0" y1="302" x2="199.0" y2="306" stroke="var(--rule)" stroke-width="1"/><text x="199.0" y="319" text-anchor="middle" fill="var(--text-muted)" font-size="11">6k</text><line x1="342.0" y1="302" x2="342.0" y2="306" stroke="var(--rule)" stroke-width="1"/><text x="342.0" y="319" text-anchor="middle" fill="var(--text-muted)" font-size="11">12k</text><line x1="485.0" y1="302" x2="485.0" y2="306" stroke="var(--rule)" stroke-width="1"/><text x="485.0" y="319" text-anchor="middle" fill="var(--text-muted)" font-size="11">18k</text><line x1="628.0" y1="302" x2="628.0" y2="306" stroke="var(--rule)" stroke-width="1"/><text x="628.0" y="319" text-anchor="middle" fill="var(--text-muted)" font-size="11">25k</text><line x1="56" y1="302.0" x2="628" y2="302.0" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="47" y="306.0" text-anchor="end" fill="var(--text-muted)" font-size="11">0.0</text><line x1="56" y1="235.0" x2="628" y2="235.0" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="47" y="239.0" text-anchor="end" fill="var(--text-muted)" font-size="11">1.2</text><line x1="56" y1="168.0" x2="628" y2="168.0" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="47" y="172.0" text-anchor="end" fill="var(--text-muted)" font-size="11">2.4</text><line x1="56" y1="101.0" x2="628" y2="101.0" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="47" y="105.0" text-anchor="end" fill="var(--text-muted)" font-size="11">3.6</text><line x1="56" y1="34.0" x2="628" y2="34.0" stroke="var(--rule)" stroke-width="1" opacity="0.55"/><text x="47" y="38.0" text-anchor="end" fill="var(--text-muted)" font-size="11">4.8</text>
+      <!-- The 1ms threshold the sub-millisecond claim refers to. -->
+      <line x1="56" y1="246.5" x2="628" y2="246.5"
+            stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="4 3"/>
+      <text x="634" y="250.5" fill="var(--text-muted)"
+            font-size="11">1 ms</text>
+      <path d="M145.9,288.7 L213.9,286.7 L301.6,282.2 L397.4,273.3 L471.9,255.0 L506.7,213.6 L595.6,151.3" fill="none" stroke="var(--p50)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="145.9" cy="288.7" r="4.5" fill="var(--p50)" stroke="var(--surface-1)" stroke-width="2"><title>p50 at 3,852 rps (concurrency 1): 0.240 ms</title></circle><circle cx="213.9" cy="286.7" r="4.5" fill="var(--p50)" stroke="var(--surface-1)" stroke-width="2"><title>p50 at 6,767 rps (concurrency 2): 0.276 ms</title></circle><circle cx="301.6" cy="282.2" r="4.5" fill="var(--p50)" stroke="var(--surface-1)" stroke-width="2"><title>p50 at 10,526 rps (concurrency 4): 0.357 ms</title></circle><circle cx="397.4" cy="273.3" r="4.5" fill="var(--p50)" stroke="var(--surface-1)" stroke-width="2"><title>p50 at 14,628 rps (concurrency 8): 0.517 ms</title></circle><circle cx="471.9" cy="255.0" r="4.5" fill="var(--p50)" stroke="var(--surface-1)" stroke-width="2"><title>p50 at 17,823 rps (concurrency 16): 0.847 ms</title></circle><circle cx="506.7" cy="213.6" r="4.5" fill="var(--p50)" stroke="var(--surface-1)" stroke-width="2"><title>p50 at 19,313 rps (concurrency 32): 1.591 ms</title></circle><circle cx="595.6" cy="151.3" r="4.5" fill="var(--p50)" stroke="var(--surface-1)" stroke-width="2"><title>p50 at 23,123 rps (concurrency 64): 2.713 ms</title></circle><text x="604.6" y="155.3" fill="var(--p50)" font-size="12" font-weight="640">p50</text><path d="M145.9,284.5 L213.9,282.1 L301.6,276.0 L397.4,262.5 L471.9,234.2 L506.7,178.5 L595.6,106.8" fill="none" stroke="var(--p90)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="145.9" cy="284.5" r="4.5" fill="var(--p90)" stroke="var(--surface-1)" stroke-width="2"><title>p90 at 3,852 rps (concurrency 1): 0.316 ms</title></circle><circle cx="213.9" cy="282.1" r="4.5" fill="var(--p90)" stroke="var(--surface-1)" stroke-width="2"><title>p90 at 6,767 rps (concurrency 2): 0.358 ms</title></circle><circle cx="301.6" cy="276.0" r="4.5" fill="var(--p90)" stroke="var(--surface-1)" stroke-width="2"><title>p90 at 10,526 rps (concurrency 4): 0.469 ms</title></circle><circle cx="397.4" cy="262.5" r="4.5" fill="var(--p90)" stroke="var(--surface-1)" stroke-width="2"><title>p90 at 14,628 rps (concurrency 8): 0.711 ms</title></circle><circle cx="471.9" cy="234.2" r="4.5" fill="var(--p90)" stroke="var(--surface-1)" stroke-width="2"><title>p90 at 17,823 rps (concurrency 16): 1.220 ms</title></circle><circle cx="506.7" cy="178.5" r="4.5" fill="var(--p90)" stroke="var(--surface-1)" stroke-width="2"><title>p90 at 19,313 rps (concurrency 32): 2.223 ms</title></circle><circle cx="595.6" cy="106.8" r="4.5" fill="var(--p90)" stroke="var(--surface-1)" stroke-width="2"><title>p90 at 23,123 rps (concurrency 64): 3.515 ms</title></circle><text x="604.6" y="110.8" fill="var(--p90)" font-size="12" font-weight="640">p90</text><path d="M145.9,274.0 L213.9,270.2 L301.6,261.5 L397.4,241.2 L471.9,203.9 L506.7,134.3 L595.6,58.4" fill="none" stroke="var(--p99)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="145.9" cy="274.0" r="4.5" fill="var(--p99)" stroke="var(--surface-1)" stroke-width="2"><title>p99 at 3,852 rps (concurrency 1): 0.505 ms</title></circle><circle cx="213.9" cy="270.2" r="4.5" fill="var(--p99)" stroke="var(--surface-1)" stroke-width="2"><title>p99 at 6,767 rps (concurrency 2): 0.573 ms</title></circle><circle cx="301.6" cy="261.5" r="4.5" fill="var(--p99)" stroke="var(--surface-1)" stroke-width="2"><title>p99 at 10,526 rps (concurrency 4): 0.729 ms</title></circle><circle cx="397.4" cy="241.2" r="4.5" fill="var(--p99)" stroke="var(--surface-1)" stroke-width="2"><title>p99 at 14,628 rps (concurrency 8): 1.095 ms</title></circle><circle cx="471.9" cy="203.9" r="4.5" fill="var(--p99)" stroke="var(--surface-1)" stroke-width="2"><title>p99 at 17,823 rps (concurrency 16): 1.767 ms</title></circle><circle cx="506.7" cy="134.3" r="4.5" fill="var(--p99)" stroke="var(--surface-1)" stroke-width="2"><title>p99 at 19,313 rps (concurrency 32): 3.019 ms</title></circle><circle cx="595.6" cy="58.4" r="4.5" fill="var(--p99)" stroke="var(--surface-1)" stroke-width="2"><title>p99 at 23,123 rps (concurrency 64): 4.387 ms</title></circle><text x="604.6" y="62.4" fill="var(--p99)" font-size="12" font-weight="640">p99</text>
+      <text x="56" y="338" class="axis-title">throughput (requests/sec) →</text>
+      <text x="47" y="16" text-anchor="end" class="axis-title">ms</text>
+      <text x="56" y="16" class="axis-title">latency percentiles</text>
+    </svg>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--p50)"></i>p50 (median)</span>
+    <span><i class="swatch" style="background:var(--p90)"></i>p90</span>
+    <span><i class="swatch" style="background:var(--p99)"></i>p99 (tail)</span>
+    <span style="color:var(--text-muted)">dashed = 1 ms</span>
+  </div>
+
+  <section class="panel">
+    <h3>Reading this curve</h3>
+    <p><b>Sub-millisecond is real, but it is a property of load level — not of the
+       service alone.</b> Median latency stays under 1 ms up to about
+       17,823 req/s. Past that the service saturates and
+       queueing dominates.</p>
+    <p><b>Why it bends.</b> This is a closed-loop benchmark, so Little's Law
+       applies: latency ≈ concurrency ÷ throughput. At 64 in-flight requests and
+       23,123 rps, 64 ÷ 23,123 ≈
+       2.8 ms — which is what p50 measures there. Beyond the
+       knee near 32 concurrency, extra load buys almost no throughput and costs
+       latency proportionally.</p>
+    <p><b>So a bare "sub-millisecond" claim means little.</b> Without a stated
+       concurrency and percentile it is unfalsifiable, which is why the whole
+       curve is published rather than one flattering point.</p>
+  </section>
+
+  <section class="panel">
+    <h3>Running on Kubernetes</h3>
+    <p>Deployed to a kind cluster from the manifests in <code>k8s/</code> — 3/3
+       replicas Ready, zero restarts. Driving the same client through the cluster:
+       <b>26,136 RPCs</b>, <b>0 errors</b>,
+       <b>1.47 ms p50</b> at concurrency
+       4.</p>
+    <p class="muted">Higher than the 0.36 ms
+       measured over plain Docker at the same concurrency. The difference is
+       <code>kubectl port-forward</code> — a userspace TCP proxy — plus pod
+       networking, not the service. Quoting the Docker figure for a Kubernetes
+       deployment would be wrong, so both are recorded.</p>
+  </section>
+  <section class="panel">
+    <h3>What is being measured</h3>
+    <p>End-to-end gRPC round trip including the Redis round trip, client and
+       server on one host. Every latency is recorded into an HdrHistogram, so the
+       percentiles are real quantiles rather than an average with error bars.</p>
+    <p class="muted">A real deployment adds network hops between client, service,
+       and Redis — expect higher absolute numbers and a lower knee. Redis runs
+       with persistence disabled; this measures the service, not Redis durability.</p>
+  </section>
+
+  <details>
+    <summary>All measured values (table view)</summary>
+    <div class="tblwrap">
+      <table>
+        <thead><tr>
+          <th>Concurrency</th><th>req/s</th><th>p50 ms</th><th>p90 ms</th>
+          <th>p99 ms</th><th>&lt;1ms</th><th>Requests</th><th>Errors</th>
+        </tr></thead>
+        <tbody><tr><td>1</td><td>3,852</td><td>0.240</td><td>0.316</td><td>0.505</td><td>99.9%</td><td>46,224</td><td>0</td></tr><tr><td>2</td><td>6,767</td><td>0.276</td><td>0.358</td><td>0.573</td><td>99.9%</td><td>81,202</td><td>0</td></tr><tr><td>4</td><td>10,526</td><td>0.357</td><td>0.469</td><td>0.729</td><td>99.8%</td><td>126,314</td><td>0</td></tr><tr><td>8</td><td>14,628</td><td>0.517</td><td>0.711</td><td>1.095</td><td>98.5%</td><td>175,553</td><td>0</td></tr><tr><td>16</td><td>17,823</td><td>0.847</td><td>1.220</td><td>1.767</td><td>72.9%</td><td>213,896</td><td>0</td></tr><tr><td>32</td><td>19,313</td><td>1.591</td><td>2.223</td><td>3.019</td><td>3.4%</td><td>231,803</td><td>0</td></tr><tr><td>64</td><td>23,123</td><td>2.713</td><td>3.515</td><td>4.387</td><td>0.0%</td><td>277,582</td><td>0</td></tr></tbody>
+      </table>
+    </div>
+  </details>
+
+  <footer>
+    Raw measurements: <a href="sweep.json">sweep.json</a>
+    &middot; <a href="https://github.com/Haiderali2755/rust-grpc-authz-service">Source, manifests and methodology</a>
+  </footer>
+
+</div>
+</div>
+</html>
