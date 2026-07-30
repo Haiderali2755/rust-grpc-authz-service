@@ -74,8 +74,12 @@ numbers and a lower knee.
 
 ## Deployment
 
-**Deployed and verified on Kubernetes** (kind, v1.34): 3/3 replicas Ready, zero
-restarts, 26,136 RPCs served through the cluster with zero errors.
+**Deployed and verified on Kubernetes**, and re-verified on every push: CI
+creates a kind cluster, applies the manifests, asserts 3/3 replicas Ready with
+zero restarts, and serves real RPCs through the cluster. Latest run: **5,313
+in-cluster RPCs at 919 µs p50** on a shared GitHub runner.
+
+Locally (kind v1.34): 3/3 Ready, zero restarts, 26,136 RPCs with zero errors.
 
 ```bash
 kind create cluster --name authz-demo
@@ -111,6 +115,15 @@ laptop cluster (side-loaded image, no metrics-server) without touching the base.
 - **Readiness follows Redis.** A background task pings the session store every
   5s and flips the health status, so an instance that cannot serve a `Check`
   leaves the load-balancing set instead of accepting traffic it will fail.
+- **A `startupProbe` owns the slow-start window.** A liveness probe that fires
+  during start-up restarts the container in a loop — this happened on a slower CI
+  runner before the split was added. Liveness only begins once startup succeeds.
+- **An initContainer gates on Redis.** The service must not bind its listener
+  after blocking on a dependency, or the startup probe has nothing to reach.
+  Ordering belongs in the orchestrator, not in application retry logic.
+
+Each of the last three was a real failure found by deploying — none of them is
+visible to manifest schema validation.
 - **HPA scales up fast, down slow.** Shedding replicas eagerly causes
   connection churn and a tail-latency bump on every scale-down.
 - **PodDisruptionBudget** keeps 2 of 3 replicas during node drains.
