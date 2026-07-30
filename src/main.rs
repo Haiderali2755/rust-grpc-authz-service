@@ -118,9 +118,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()?;
 
     let client = redis::Client::open(redis_url.as_str())?;
+
     // ConnectionManager multiplexes over one connection and reconnects on drop,
     // so per-request latency excludes connection setup.
-    let redis = ConnectionManager::new(client).await?;
+    //
+    // Retried with a bounded backoff rather than awaited once: on a cold
+    // cluster Redis may not be accepting connections yet, and a single blocking
+    // await here delays the gRPC listener — which fails the startup probe and
+    // gets the pod killed before it ever serves. The listener must come up
+    // promptly and report readiness, not block on a dependency.
+    let redis = {
+        let mut attempt = 0u32;
+        loop {
+            match ConnectionManager::new(client.clone()).await {
+                Ok(c) => break c,
+                Err(e) if attempt < 5 => {
+                    attempt += 1;
+                    let backoff = Duration::from_millis(200 * 2u64.pow(attempt));
+                    tracing::warn!(attempt, ?backoff, error = %e, "redis connect failed, retrying");
+                    tokio::time::sleep(backoff).await;
+                }
+                Err(e) => {
+                    // Exhausted retries. Fail fast with a clear message rather
+                    // than serving a permanently broken instance — the pod
+                    // restarts and an initContainer gates on Redis being up.
+                    return Err(format!("redis unreachable after {attempt} retries: {e}").into());
+                }
+            }
+        }
+    };
 
     let limiter = Arc::new(Script::new(include_str!("limiter.lua")));
 

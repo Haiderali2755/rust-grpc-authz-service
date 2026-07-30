@@ -98,9 +98,20 @@ jobs:
       - name: Verify all replicas are Ready with no restarts
         run: |
           kubectl get pods -l app=authz
+
+          # Sum restart counts in awk rather than bc, which is not installed on
+          # the runner image; the previous `| bc` produced an empty string and
+          # made the numeric test itself error out.
           restarts=$(kubectl get pods -l app=authz \
-            -o jsonpath='{.items[*].status.containerStatuses[0].restartCount}' | tr ' ' '+' | bc)
-          echo "total restarts: $restarts"
+            -o jsonpath='{.items[*].status.containerStatuses[0].restartCount}' \
+            | awk '{s=0; for (i=1; i<=NF; i++) s+=$i; print s+0}')
+          ready=$(kubectl get pods -l app=authz \
+            -o jsonpath='{range .items[*]}{.status.containerStatuses[0].ready}{"\n"}{end}' \
+            | grep -c true || true)
+
+          echo "ready replicas: $ready / 3   restarts: $restarts"
+
+          [ "$ready" -eq 3 ] || { kubectl describe pods -l app=authz; exit 1; }
           [ "$restarts" -eq 0 ] || { kubectl describe pods -l app=authz; exit 1; }
       - name: Serve real RPCs through the cluster
         run: |

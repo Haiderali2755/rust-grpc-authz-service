@@ -15,6 +15,32 @@ spec:
         runAsNonRoot: true
         runAsUser: 10001
         seccompProfile: {type: RuntimeDefault}
+      # Gate start-up on Redis being reachable. Without this the service can
+      # start before its dependency exists, block on connecting, and fail the
+      # startup probe — ordering belongs here rather than in retry logic.
+      initContainers:
+        - name: wait-for-redis
+          image: redis:7-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until redis-cli -u "$REDIS_URL" ping 2>/dev/null | grep -q PONG; do
+                echo "waiting for redis..."
+                sleep 2
+              done
+              echo "redis is up"
+          env:
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef: {name: authz-redis, key: url}
+          resources:
+            requests: {cpu: "50m", memory: "16Mi"}
+            limits:   {cpu: "100m", memory: "32Mi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
       containers:
         - name: authz
           image: ghcr.io/haiderali2755/authz-service:latest
