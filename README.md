@@ -4,6 +4,8 @@ A gRPC microservice for distributed session validation and rate limiting, built
 with Tonic and backed by Redis. Includes a load generator that reports the full
 latency distribution, plus Docker and Kubernetes manifests.
 
+**[→ Live results page](https://haiderali2755.github.io/rust-grpc-authz-service/)**
+
 **Personal project** — built to measure what a Rust gRPC service on Redis
 actually delivers, not to demonstrate a predetermined number.
 
