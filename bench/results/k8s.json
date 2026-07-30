@@ -1,0 +1,19 @@
+{
+  "concurrency": 4,
+  "duration_s": 10.0,
+  "requests_ok": 26136,
+  "requests_err": 0,
+  "denied_rate_limited": 0,
+  "throughput_rps": 2613.4,
+  "latency": {
+    "p50_us": 1472,
+    "p90_us": 1877,
+    "p95_us": 2044,
+    "p99_us": 2531,
+    "p999_us": 5151,
+    "max_us": 10071,
+    "mean_us": 1528.55
+  },
+  "sub_millisecond_share": 0.1,
+  "note": "Closed-loop client on the same host as the server; latency is end-to-end gRPC round trip including Redis."
+}

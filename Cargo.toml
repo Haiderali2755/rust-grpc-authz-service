@@ -5,6 +5,9 @@ edition = "2021"
 
 [dependencies]
 tonic = "0.12"
+# health: implements grpc.health.v1.Health, which is what Kubernetes `grpc`
+# probes call. A custom Health RPC does not satisfy them.
+tonic-health = "0.12"
 prost = "0.13"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
 tower = "0.5"

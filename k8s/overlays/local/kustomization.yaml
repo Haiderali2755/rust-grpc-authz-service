@@ -1,0 +1,39 @@
+# Local-cluster overlay (kind / minikube).
+#
+# The base manifests point at the real registry and assume a cluster with
+# metrics-server. This overlay adapts both for a laptop cluster without
+# modifying the production definitions.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+images:
+  - name: ghcr.io/haiderali2755/authz-service
+    newName: authz-service
+    newTag: dev
+
+patches:
+  # A side-loaded image exists on the node but in no registry, so the default
+  # PullAlways would fail. IfNotPresent uses what `kind load` placed there.
+  - target:
+      kind: Deployment
+      name: authz
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  # kind ships no metrics-server, so the HPA cannot read CPU and would sit in a
+  # permanent FailedGetResourceMetric loop. Removed locally; scaling behaviour
+  # belongs to a real cluster.
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: authz
+    patch: |
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: authz

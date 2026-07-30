@@ -70,4 +70,48 @@ jobs:
           curl -sSLo kc.tar.gz https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
           tar xf kc.tar.gz kubeconform
       - name: Validate
-        run: ./kubeconform -summary -strict k8s/
+        run: ./kubeconform -summary -strict k8s/base/
+
+  deploy:
+    name: Deploy to kind
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: authz-ci
+      - name: Build and side-load the image
+        run: |
+          docker build -t authz-service:dev .
+          kind load docker-image authz-service:dev --name authz-ci
+      - name: Apply manifests
+        run: kubectl apply -k k8s/overlays/local
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/redis --timeout=180s
+          kubectl rollout status deployment/authz --timeout=180s
+      - name: Verify all replicas are Ready with no restarts
+        run: |
+          kubectl get pods -l app=authz
+          restarts=$(kubectl get pods -l app=authz \
+            -o jsonpath='{.items[*].status.containerStatuses[0].restartCount}' | tr ' ' '+' | bc)
+          echo "total restarts: $restarts"
+          [ "$restarts" -eq 0 ] || { kubectl describe pods -l app=authz; exit 1; }
+      - name: Serve real RPCs through the cluster
+        run: |
+          REDIS=$(kubectl get pod -l app=redis -o jsonpath='{.items[0].metadata.name}')
+          kubectl exec "$REDIS" -- redis-cli SET session:tok-0 subject-ci
+          kubectl port-forward svc/authz 50051:50051 &
+          sleep 6
+          docker run --rm --network host -v "$PWD":/w -w /w/bench/loadgen \
+            -e TARGET=http://127.0.0.1:50051 -e CONCURRENCY=1 \
+            -e DURATION=5 -e WARMUP=2 -e OUT=/w/bench/results/k8s-ci.json \
+            rust:1.88-slim \
+            sh -c 'apt-get update >/dev/null && apt-get install -y --no-install-recommends protobuf-compiler >/dev/null && cargo run --release'
+          python3 - <<'PY'
+          import json
+          d = json.load(open('bench/results/k8s-ci.json'))
+          assert d['requests_ok'] > 0, "no successful requests through the cluster"
+          assert d['requests_err'] == 0, f"{d['requests_err']} errors"
+          print(f"ok: {d['requests_ok']} in-cluster RPCs, p50 {d['latency']['p50_us']}us")
+          PY

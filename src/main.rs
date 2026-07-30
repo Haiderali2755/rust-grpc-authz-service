@@ -124,12 +124,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let limiter = Arc::new(Script::new(include_str!("limiter.lua")));
 
-    let svc = AuthzService { redis, limiter };
+    let svc = AuthzService {
+        redis: redis.clone(),
+        limiter,
+    };
+
+    // Kubernetes `grpc:` probes call grpc.health.v1.Health — the standard
+    // protocol, not an application-defined Health RPC. Without this service
+    // registered the probe gets UNIMPLEMENTED and the kubelet kills the pod.
+    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    health_reporter
+        .set_serving::<AuthzServer<AuthzService>>()
+        .await;
+
+    // Readiness tracks Redis: if the session store is unreachable this instance
+    // cannot serve a Check, so it should leave the load-balancing set rather
+    // than accept traffic it will only fail.
+    tokio::spawn({
+        let mut conn = redis;
+        let mut reporter = health_reporter.clone();
+        async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                let ok = redis::cmd("PING")
+                    .query_async::<String>(&mut conn)
+                    .await
+                    .is_ok();
+                if ok {
+                    reporter.set_serving::<AuthzServer<AuthzService>>().await;
+                } else {
+                    reporter
+                        .set_not_serving::<AuthzServer<AuthzService>>()
+                        .await;
+                }
+            }
+        }
+    });
 
     tracing::info!(%addr, "authz-service listening");
 
     Server::builder()
         .http2_keepalive_interval(Some(Duration::from_secs(20)))
+        .add_service(health_service)
         .add_service(AuthzServer::new(svc))
         .serve_with_shutdown(addr, async {
             let _ = tokio::signal::ctrl_c().await;

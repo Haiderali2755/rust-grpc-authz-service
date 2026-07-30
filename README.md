@@ -74,7 +74,28 @@ numbers and a lower knee.
 
 ## Deployment
 
-Kubernetes manifests in [`k8s/`](k8s/) — chosen for latency-sensitive serving:
+**Deployed and verified on Kubernetes** (kind, v1.34): 3/3 replicas Ready, zero
+restarts, 26,136 RPCs served through the cluster with zero errors.
+
+```bash
+kind create cluster --name authz-demo
+docker build -t authz-service:dev .
+kind load docker-image authz-service:dev --name authz-demo
+kubectl apply -k k8s/overlays/local
+kubectl rollout status deployment/authz
+```
+
+In-cluster latency at concurrency 4 was **1.47 ms p50**, against 0.357 ms for the
+same load over plain Docker. The difference is `kubectl port-forward` — a
+userspace TCP proxy — plus pod networking, not the service. Quoting the Docker
+figure for a Kubernetes deployment would be wrong, so both are recorded.
+
+### Manifest layout
+
+`k8s/base/` holds the real definitions; `k8s/overlays/local/` adapts them for a
+laptop cluster (side-loaded image, no metrics-server) without touching the base.
+
+### Why these settings, for latency-sensitive serving
 
 - **Guaranteed QoS** (requests == limits). Burstable pods get CPU-throttled
   mid-request, which lands directly in tail latency.
@@ -82,6 +103,14 @@ Kubernetes manifests in [`k8s/`](k8s/) — chosen for latency-sensitive serving:
   ClusterIP pins each client to one pod. Clients resolve all pod IPs and
   balance per request.
 - **gRPC-native probes** rather than an exec probe — the image ships no shell.
+  These require the standard `grpc.health.v1.Health` service, which the server
+  registers via `tonic-health`. An application-defined `Health` RPC does **not**
+  satisfy them: the probe gets `UNIMPLEMENTED` and the kubelet kills the pod with
+  exit 137. This was a real bug found by deploying, and one that manifest schema
+  validation cannot catch.
+- **Readiness follows Redis.** A background task pings the session store every
+  5s and flips the health status, so an instance that cannot serve a `Check`
+  leaves the load-balancing set instead of accepting traffic it will fail.
 - **HPA scales up fast, down slow.** Shedding replicas eagerly causes
   connection churn and a tail-latency bump on every scale-down.
 - **PodDisruptionBudget** keeps 2 of 3 replicas during node drains.
