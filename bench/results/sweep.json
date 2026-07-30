@@ -1,0 +1,137 @@
+{
+  "sweep": [
+    {
+      "concurrency": 1,
+      "duration_s": 12.0,
+      "requests_ok": 46224,
+      "requests_err": 0,
+      "denied_rate_limited": 0,
+      "throughput_rps": 3852.0,
+      "latency": {
+        "p50_us": 240,
+        "p90_us": 316,
+        "p95_us": 367,
+        "p99_us": 505,
+        "p999_us": 882,
+        "max_us": 5875,
+        "mean_us": 258.54
+      },
+      "sub_millisecond_share": 99.9,
+      "note": "Closed-loop client on the same host as the server; latency is end-to-end gRPC round trip including Redis."
+    },
+    {
+      "concurrency": 2,
+      "duration_s": 12.0,
+      "requests_ok": 81202,
+      "requests_err": 0,
+      "denied_rate_limited": 0,
+      "throughput_rps": 6766.7,
+      "latency": {
+        "p50_us": 276,
+        "p90_us": 358,
+        "p95_us": 409,
+        "p99_us": 573,
+        "p999_us": 1077,
+        "max_us": 7187,
+        "mean_us": 294.46
+      },
+      "sub_millisecond_share": 99.9,
+      "note": "Closed-loop client on the same host as the server; latency is end-to-end gRPC round trip including Redis."
+    },
+    {
+      "concurrency": 4,
+      "duration_s": 12.0,
+      "requests_ok": 126314,
+      "requests_err": 0,
+      "denied_rate_limited": 0,
+      "throughput_rps": 10525.9,
+      "latency": {
+        "p50_us": 357,
+        "p90_us": 469,
+        "p95_us": 530,
+        "p99_us": 729,
+        "p999_us": 1130,
+        "max_us": 2001,
+        "mean_us": 378.81
+      },
+      "sub_millisecond_share": 99.8,
+      "note": "Closed-loop client on the same host as the server; latency is end-to-end gRPC round trip including Redis."
+    },
+    {
+      "concurrency": 8,
+      "duration_s": 12.0,
+      "requests_ok": 175553,
+      "requests_err": 0,
+      "denied_rate_limited": 0,
+      "throughput_rps": 14628.4,
+      "latency": {
+        "p50_us": 517,
+        "p90_us": 711,
+        "p95_us": 801,
+        "p99_us": 1095,
+        "p999_us": 1725,
+        "max_us": 3861,
+        "mean_us": 545.59
+      },
+      "sub_millisecond_share": 98.5,
+      "note": "Closed-loop client on the same host as the server; latency is end-to-end gRPC round trip including Redis."
+    },
+    {
+      "concurrency": 16,
+      "duration_s": 12.0,
+      "requests_ok": 213896,
+      "requests_err": 0,
+      "denied_rate_limited": 0,
+      "throughput_rps": 17822.8,
+      "latency": {
+        "p50_us": 847,
+        "p90_us": 1220,
+        "p95_us": 1371,
+        "p99_us": 1767,
+        "p999_us": 2847,
+        "max_us": 7235,
+        "mean_us": 896.3
+      },
+      "sub_millisecond_share": 72.9,
+      "note": "Closed-loop client on the same host as the server; latency is end-to-end gRPC round trip including Redis."
+    },
+    {
+      "concurrency": 32,
+      "duration_s": 12.0,
+      "requests_ok": 231803,
+      "requests_err": 0,
+      "denied_rate_limited": 0,
+      "throughput_rps": 19312.9,
+      "latency": {
+        "p50_us": 1591,
+        "p90_us": 2223,
+        "p95_us": 2459,
+        "p99_us": 3019,
+        "p999_us": 4791,
+        "max_us": 11839,
+        "mean_us": 1655.02
+      },
+      "sub_millisecond_share": 3.4,
+      "note": "Closed-loop client on the same host as the server; latency is end-to-end gRPC round trip including Redis."
+    },
+    {
+      "concurrency": 64,
+      "duration_s": 12.0,
+      "requests_ok": 277582,
+      "requests_err": 0,
+      "denied_rate_limited": 0,
+      "throughput_rps": 23123.0,
+      "latency": {
+        "p50_us": 2713,
+        "p90_us": 3515,
+        "p95_us": 3785,
+        "p99_us": 4387,
+        "p999_us": 5207,
+        "max_us": 7491,
+        "mean_us": 2763.93
+      },
+      "sub_millisecond_share": 0.0,
+      "note": "Closed-loop client on the same host as the server; latency is end-to-end gRPC round trip including Redis."
+    }
+  ]
+}

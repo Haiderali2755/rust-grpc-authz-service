@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authz
+  labels: {app: authz}
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: authz}
+  template:
+    metadata:
+      labels: {app: authz}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: authz
+          image: ghcr.io/haiderali2755/authz-service:latest
+          ports:
+            - {name: grpc, containerPort: 50051}
+          env:
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef: {name: authz-redis, key: url}
+            - {name: RUST_LOG, value: info}
+          # Requests and limits are equal, giving the pod a Guaranteed QoS class.
+          # For a latency-sensitive service this matters: Burstable pods can be
+          # CPU-throttled mid-request, which shows up directly in tail latency.
+          resources:
+            requests: {cpu: "500m", memory: "64Mi"}
+            limits:   {cpu: "500m", memory: "64Mi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          # gRPC-native probes (Kubernetes >= 1.24) rather than shelling out to
+          # a health binary — the image ships no shell.
+          readinessProbe:
+            grpc: {port: 50051}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            grpc: {port: 50051}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      # Give in-flight RPCs time to drain before SIGKILL.
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authz
+  labels: {app: authz}
+spec:
+  # Headless: gRPC keeps long-lived HTTP/2 connections, so a normal ClusterIP
+  # would pin each client to one pod and defeat load balancing. Clients resolve
+  # all pod IPs and balance per-request themselves.
+  clusterIP: None
+  selector: {app: authz}
+  ports:
+    - {name: grpc, port: 50051, targetPort: grpc}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: authz
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app: authz}

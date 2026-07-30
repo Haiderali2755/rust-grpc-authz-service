@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Build
+        run: cargo build --release
+
+  smoke:
+    name: Stack smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and start
+        run: docker compose up -d --build
+      - name: Wait for service
+        run: |
+          for _ in $(seq 1 60); do
+            docker compose logs authz 2>/dev/null | grep -q listening && break
+            sleep 2
+          done
+          docker compose logs authz | grep -q listening \
+            || { echo "service never came up"; docker compose logs; exit 1; }
+      - name: Seed a session and verify the RPC end to end
+        run: |
+          docker compose exec -T redis redis-cli SET session:ci-token subject-ci
+          # grpcurl via the reflection-less path: use the loadgen with concurrency 1.
+          docker run --rm --network host -v "$PWD":/w -w /w/bench/loadgen \
+            -e TARGET=http://127.0.0.1:50051 -e CONCURRENCY=1 \
+            -e DURATION=3 -e WARMUP=1 -e OUT=/w/bench/results/ci.json \
+            rust:1.88-slim \
+            sh -c 'apt-get update >/dev/null && apt-get install -y --no-install-recommends protobuf-compiler >/dev/null && cargo run --release'
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open('bench/results/ci.json'))
+          assert d['requests_ok'] > 0, "no successful requests"
+          assert d['requests_err'] == 0, f"{d['requests_err']} errors"
+          print(f"ok: {d['requests_ok']} requests, p50 {d['latency']['p50_us']}us")
+          PY
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
+
+  manifests:
+    name: Validate Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install kubeconform
+        run: |
+          curl -sSLo kc.tar.gz https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar xf kc.tar.gz kubeconform
+      - name: Validate
+        run: ./kubeconform -summary -strict k8s/

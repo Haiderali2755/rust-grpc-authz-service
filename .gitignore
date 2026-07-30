@@ -1,0 +1,13 @@
+# Rust build output. Cargo.lock IS committed (binary crate) — not ignored.
+/target/
+/bench/loadgen/target/
+
+# Per-run benchmark output; sweep.json is committed as the published result.
+/bench/results/c*.json
+/bench/results/latency.json
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

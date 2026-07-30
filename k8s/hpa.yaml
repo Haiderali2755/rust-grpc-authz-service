@@ -1,0 +1,39 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: authz
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: authz
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 60}
+  behavior:
+    # Scale up quickly, down slowly: a latency-sensitive service should absorb
+    # a spike immediately, but shedding replicas eagerly causes connection churn
+    # and a tail-latency bump on every scale-down.
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 15}
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 60}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: authz-redis
+type: Opaque
+stringData:
+  # Placeholder for local testing only. In a real cluster this comes from a
+  # secret manager (External Secrets, Sealed Secrets, cloud KMS) — never from a
+  # manifest committed to git.
+  url: redis://redis.default.svc.cluster.local:6379

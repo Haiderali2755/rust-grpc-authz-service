@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package authz.v1;
+
+// Session validation and rate limiting for internal service-to-service calls.
+service Authz {
+  // Validates a session token and consumes one unit of the caller's rate
+  // budget. Returns the decision plus remaining quota.
+  rpc Check(CheckRequest) returns (CheckResponse);
+
+  // Liveness/readiness probe used by Kubernetes.
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message CheckRequest {
+  string token = 1;      // opaque session token
+  string route = 2;      // logical route being accessed, for per-route limits
+  uint32 cost = 3;       // units to consume; 0 is treated as 1
+}
+
+enum Decision {
+  DECISION_UNSPECIFIED = 0;
+  DECISION_ALLOW = 1;
+  DECISION_DENY_UNAUTHENTICATED = 2;
+  DECISION_DENY_RATE_LIMITED = 3;
+}
+
+message CheckResponse {
+  Decision decision = 1;
+  string subject = 2;         // resolved principal, empty when denied
+  uint32 remaining = 3;       // remaining units in the current window
+  uint64 reset_after_ms = 4;  // ms until the window resets
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool redis_reachable = 1;
+}
